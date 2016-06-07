@@ -40,7 +40,7 @@
         top: 100px;
     }
 
-    #tools button {
+    #tools button, #tools a {
         display: block;
         width: 24px;
         margin: 2px;
@@ -60,9 +60,9 @@
 <body>
     <div id="wrapper">
         <div class="toolbar" id="tools">
-            <button class="btn btn-xs" data-bind="click: locateMe"><i class="fa fa-crosshairs"></i></button>
-            <button class="btn btn-xs" data-bind="click: addMarker"><i class="fa fa-map-marker"></i></button>
-            <button class="btn btn-xs" data-bind="click: exportGeojson, visible: catchmentOnMap"><i class="fa fa-download"></i></button>
+            <button class="btn btn-default btn-xs" data-bind="click: locateMe"><i class="fa fa-crosshairs"></i></button>
+            <button class="btn btn-default btn-xs" data-bind="click: addMarker"><i class="fa fa-map-marker"></i></button>
+            <a class="btn btn-default btn-xs" href="#" id="downloadButton" download="catchment.geojson" target="_blank" class="btn btn-xs" data-bind="visible: catchmentOnMap"><i class="fa fa-download"></i></a>
         </div>
         <div class="toolbar" id="textfield">
             <!-- ko if: markerOnMap -->
@@ -143,6 +143,10 @@
             Lpoly.addTo(self.catchmentGroup);
             self.catchmentOnMap(true);
             self.map.fitBounds(self.catchmentGroup.getBounds());
+            var myData = JSON.stringify(self.catchmentGroup.toGeoJSON());
+            $('#downloadButton').attr('href',
+                'data:application/octet-stream,'+myData
+            )
         }
 
         self.addMarkerToGroup = function(e) {
@@ -198,14 +202,10 @@
             )
         }
 
-        self.exportGeojson = function() {
-            var myData = JSON.stringify(self.catchmentGroup.toGeoJSON());
-
-        }
 
         self.map = L.map('map').setView([52.505, 20.09], 6);
 
-        L.tileLayer('http://tiles2-'+YOUR_API_KEY+'.skobblermaps.com/TileService/tiles/2.0/010011101/0/{x}/{x}/{y}.png', {
+        L.tileLayer('http://tiles2-'+YOUR_API_KEY+'.skobblermaps.com/TileService/tiles/2.0/010011101/0/{z}/{x}/{y}.png', {
           attribution: '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors, hosted by <a href="http://skobbler.com/">Skobbler</a>'
         }).addTo(self.map);
 

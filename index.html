@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EasyCatchment</title>
+
+    <link rel="stylesheet" href="./static/bootstrap/css/bootstrap.min.css">
+     <link rel="stylesheet" href="./static/font_awesome/css/font-awesome.min.css">
+    <link rel="stylesheet" href="./static/leaflet/leaflet.css" />
+    <script src="./static/js/jquery-2.2.2.min.js"></script>
+    <!-- Leaflet JS -->
+    <script src="./static/leaflet/leaflet.js"></script>
+
+    <!--KNOCKOUT 3.3.0 -->
+    <script src='./static/js/knockout-min.js'></script>
+
+    <script src="apikey.js"></script>
+    <style>
+
+    body,html, #wrapper {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+    }
+
+    #map {
+        width: 100%;
+        height: 100%;
+    }
+
+    .toolbar {
+        background: #FFFFFF;
+        z-index: 1500;
+        padding: 2px;
+        position: absolute;
+        border-radius: 4px;
+    }
+
+    #tools {
+        left: 10px;
+        top: 100px;
+    }
+
+    #tools button {
+        display: block;
+        width: 24px;
+        margin: 2px;
+    }
+
+    #textfield {
+        right: 10px;
+        top: 10px;
+    }
+
+    #catchTime {
+        width: 50px;
+    }
+
+    </style>
+</head>
+<body>
+    <div id="wrapper">
+        <div class="toolbar" id="tools">
+            <button class="btn btn-xs" data-bind="click: locateMe"><i class="fa fa-crosshairs"></i></button>
+            <button class="btn btn-xs" data-bind="click: addMarker"><i class="fa fa-map-marker"></i></button>
+            <button class="btn btn-xs" data-bind="click: exportGeojson, visible: catchmentOnMap"><i class="fa fa-download"></i></button>
+        </div>
+        <div class="toolbar" id="textfield">
+            <!-- ko if: markerOnMap -->
+            <label class="radio-inline catch-radio line-block">
+              <input type="radio" value="pedestrian" data-bind="checked: mode"> <i class="fa fa-male"></i>
+            </label>
+            <label class="radio-inline catch-radio line-block">
+              <input type="radio" value="bike" data-bind="checked: mode"> <i class="fa fa-bicycle"></i>
+            </label>
+            <label class="radio-inline catch-radio line-block">
+              <input type="radio" value="car" data-bind="checked: mode"> <i class="fa fa-car"></i>
+            </label>
+            <input type="number" id="catchTime" data-bind="value: time"/>
+            min
+            <button class="btn btn-primary" data-bind="click: makeRequest"><i class="fa fa-arrow-right"></i></button>
+            <!-- /ko -->
+            <!-- ko ifnot: markerOnMap -->
+            Place marker on map by geolocation or manually to start.
+            <!-- /ko -->
+
+        </div>
+        <div id="map"></div>
+    </div>
+    <script>
+    function catchmentVModel() {
+        var self = this;
+
+        self.time = ko.observable(15);
+        self.mode = ko.observable('car');
+
+        self.locateMe = function() {
+            self.map.locate({setView: true, maxZoom: 16});
+        }
+
+        self.catchmentOnMap = ko.observable(false);
+        self.markerOnMap = ko.observable(false);
+
+        self.processToGeojson = function(data,callback) {
+            var resp = data['realReach'];
+            if(!resp) {
+                alert('Invalid server response');
+                return;
+            }
+            var coords = [];
+            var limit = resp['gpsPoints'].length;
+            var bounds = resp['gpsBBox'];
+            for (var i=0; i<limit; i++) {
+                var point = resp['gpsPoints'][i];
+                if (i % 2 == 0) {
+                    if (point < bounds[0] || point > bounds[2]) {
+                        continue;
+                    }
+                    coords.push([point,resp['gpsPoints'][i+1]]);
+                }
+            }
+            var feature = {
+                type: 'Feature',
+                properties: {},
+                geometry: {
+                    type: "Polygon",
+                    coordinates: [[coords]]
+                }
+            }
+            console.log(limit,resp['gpsPoints'],feature);
+            if(typeof callback == 'function') {
+                callback(feature);
+            }
+            return feature;
+        }
+
+        self.addFeatureToMap = function(data) {
+            self.catchmentGroup.clearLayers();
+            reversedCoords = data.geometry.coordinates[0][0].map(function(coord){
+                return L.latLng(coord[1],coord[0]);
+            })
+            var Lpoly = L.polygon(reversedCoords,{});
+            console.log(data,Lpoly);
+            Lpoly.addTo(self.catchmentGroup);
+            self.catchmentOnMap(true);
+            self.map.fitBounds(self.catchmentGroup.getBounds());
+        }
+
+        self.addMarkerToGroup = function(e) {
+            console.log(e);
+            self.markerGroup.clearLayers();
+            L.marker(e.latlng,{draggable: true}).addTo(self.markerGroup);
+            self.markerOnMap(true);
+        }
+
+        self.addMarker = function() {
+            self.map.once('click', function(e) {
+                self.addMarkerToGroup(e);
+            });
+        }
+
+        self.makeUrl = function() {
+            var url = 'http://';
+            url+= YOUR_API_KEY;
+            url += '.tor.skobbler.net/tor/RSngx/RealReach/json/18_0/en/';
+            url += YOUR_API_KEY;
+            return url;
+        }
+
+        self.getMarkerPos = function() {
+            var mrkrs = self.markerGroup.getLayers();
+            if(!mrkrs.length) {
+                return;
+            }
+            var mrkr = mrkrs[0];
+            return mrkr.getLatLng();
+
+        }
+
+        self.makeRequest = function() {
+            var ll = self.getMarkerPos();
+            if(!ll) {
+                return;
+            }
+            $.getJSON(
+                self.makeUrl(),
+                {
+                    start: ll.lat+','+ll.lng,
+                    transport: self.mode(),
+                    range: parseInt(self.time())*60,
+                    toll: 1,
+                    nonReachable: 0,
+                    response_type: 'gps',
+                    units: 'sec'
+                },
+                function(data) {
+                    self.processToGeojson(data,self.addFeatureToMap);
+                }
+            )
+        }
+
+        self.exportGeojson = function() {
+            var myData = JSON.stringify(self.catchmentGroup.toGeoJSON());
+
+        }
+
+        self.map = L.map('map').setView([52.505, 20.09], 6);
+
+        L.tileLayer('http://tiles2-'+YOUR_API_KEY+'.skobblermaps.com/TileService/tiles/2.0/010011101/0/{x}/{x}/{y}.png', {
+          attribution: '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors, hosted by <a href="http://skobbler.com/">Skobbler</a>'
+        }).addTo(self.map);
+
+        self.catchmentGroup = L.featureGroup();
+        self.catchmentGroup.addTo(self.map);
+
+        self.markerGroup = L.featureGroup();
+        self.markerGroup.addTo(self.map);
+
+        self.map.on('locationfound',self.addMarkerToGroup);
+
+
+    }
+
+    var vm = new catchmentVModel();
+    ko.applyBindings(vm);
+
+    </script>
+</body>
+</html>
